@@ -5,7 +5,7 @@ so the rest of the system (API, execution, frontend) can be built and
 tested before the LLM call is wired in (see build plan, Phase 1 vs 2).
 """
 
-from app.schemas import WorkflowGraph, NodeSpec
+from app.schemas import Edge, WorkflowGraph, NodeSpec
 
 
 def generate_graph_stub(query: str, aoi: dict, date_range: dict) -> WorkflowGraph:
@@ -20,7 +20,8 @@ def generate_graph_stub(query: str, aoi: dict, date_range: dict) -> WorkflowGrap
                  params={"ndmi_thresh": 0.2, "et_deficit_thresh": 0.3},
                  inputs=["ndvi", "ndmi", "et_raw"], outputs=["stress_class"]),
     ]
-    edges = [("n1", "n2"), ("n2", "n3"), ("n2", "n4"), ("n5", "n6"), ("n3", "n6"), ("n4", "n6")]
+    edges = [Edge(source=s, target=t) for s, t in
+             [("n1", "n2"), ("n2", "n3"), ("n2", "n4"), ("n5", "n6"), ("n3", "n6"), ("n4", "n6")]]
     return WorkflowGraph(workflow_id="stub", nodes=nodes, edges=edges)
 
 
