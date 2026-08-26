@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtualenv (lives inside the project tree)
+venv/
+.venv/
+
+# Secrets — never commit
+.env
+keys/
+
+# Generated artifacts and scratch output
+data/
+*.log
+*.tif
+*.tiff
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

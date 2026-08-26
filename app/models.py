@@ -1,11 +1,17 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from geoalchemy2 import Geometry
 
 from app.database import Base
+
+
+def utcnow() -> datetime:
+    """Timezone-aware UTC now. datetime.utcnow() is deprecated and returns a
+    naive datetime, which silently loses the offset on write."""
+    return datetime.now(timezone.utc)
 
 
 class NodeCatalog(Base):
@@ -31,7 +37,7 @@ class Workflow(Base):
     date_range = Column(JSONB, default=dict)
     graph = Column(JSONB, default=dict)  # the full generated DAG
     status = Column(String, default="draft")  # draft / running / done / failed
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 
 class NodeRun(Base):
@@ -44,8 +50,8 @@ class NodeRun(Base):
     node_type = Column(String, nullable=False)
     status = Column(String, default="pending")   # pending / running / done / failed
     output_ref = Column(String, nullable=True)   # pointer to result in object storage
-    started_at = Column(DateTime, nullable=True)
-    finished_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
     error = Column(Text, nullable=True)
 
 
