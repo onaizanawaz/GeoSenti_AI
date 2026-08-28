@@ -1,13 +1,21 @@
-import os
-from dotenv import load_dotenv
 from celery import Celery
 
-load_dotenv()
+from app.config import get_settings
+
+settings = get_settings()
 
 celery_app = Celery(
     "geoflow",
-    broker=os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"),
-    backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0"),
+    broker=settings.celery_broker_url,
+    backend=settings.celery_result_backend,
 )
 
-celery_app.conf.imports = ["app.services.executor"]
+celery_app.conf.update(
+    task_track_started=True,
+    task_acks_late=True,
+    worker_prefetch_multiplier=1,
+    timezone="UTC",
+    enable_utc=True,
+    result_expires=60 * 60 * 24 * 7,
+    imports=["app.services.orchestrator", "app.services.executor"],
+)

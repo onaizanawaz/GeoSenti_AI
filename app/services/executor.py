@@ -1,50 +1,41 @@
-"""
-Execution layer. Walks a workflow graph in topological order and runs
-each node against its real implementation (GEE, WaPOR, etc).
-This is a stub, fill in real GEE/WaPOR calls per node_type as you build them.
+"""Per-node Celery task.
+
+Unused until Phase 5, which replaces the orchestrator's sequential loop with
+wave dispatch (group(execute_node.s(...)) plus a self-rescheduling orchestrator).
+Until then the orchestrator calls execute_one() directly, in-process.
+
+The old _run_node_logic dispatcher lived here and raised NotImplementedError
+for every node type; node implementations now live in app/services/nodes/.
 """
 
-from datetime import datetime
+import logging
 
 from app.celery_app import celery_app
 from app.database import SessionLocal
-from app.models import NodeRun
+from app.models import Workflow, WorkflowRun
+from app.services.orchestrator import execute_one
+from app.services.storage import get_store
+
+log = logging.getLogger(__name__)
 
 
 @celery_app.task(name="execute_node")
-def execute_node(node_run_id: str, node_type: str, params: dict):
+def execute_node(workflow_run_id: str, node_id: str) -> str:
     db = SessionLocal()
-    node_run = db.query(NodeRun).filter_by(id=node_run_id).first()
     try:
-        node_run.status = "running"
-        node_run.started_at = datetime.utcnow()
-        db.commit()
+        run = db.query(WorkflowRun).filter_by(id=workflow_run_id).first()
+        if run is None:
+            # Previously this dereferenced a None node_run in both the body and
+            # the except handler, so the task died and the row stayed "pending".
+            log.error("WorkflowRun %s not found", workflow_run_id)
+            return "missing"
 
-        # Dispatch to the real implementation. Replace with actual node logic.
-        output_ref = _run_node_logic(node_type, params)
+        wf = db.query(Workflow).filter_by(id=run.workflow_id).first()
+        node = next((n for n in wf.graph["nodes"] if n["id"] == node_id), None)
+        if node is None:
+            log.error("Node %s not present in workflow %s", node_id, wf.id)
+            return "missing"
 
-        node_run.status = "done"
-        node_run.output_ref = output_ref
-        node_run.finished_at = datetime.utcnow()
-        db.commit()
-    except Exception as e:
-        node_run.status = "failed"
-        node_run.error = str(e)
-        node_run.finished_at = datetime.utcnow()
-        db.commit()
+        return execute_one(db, get_store(), run, wf, wf.graph, node)
     finally:
         db.close()
-
-
-def _run_node_logic(node_type: str, params: dict) -> str:
-    """
-    Placeholder dispatcher. Replace each branch with the real call
-    (e.g. gee.fetch_sentinel2(**params), wapor.fetch_et(**params)).
-    Returns a reference to where the output was stored.
-    """
-    if node_type == "fetch_sentinel2":
-        raise NotImplementedError("Wire up GEE Sentinel-2 fetch here")
-    elif node_type == "compute_ndvi":
-        raise NotImplementedError("Wire up NDVI computation here")
-    # ... add the rest of the node_catalog types here
-    raise NotImplementedError(f"No implementation registered for node type: {node_type}")
