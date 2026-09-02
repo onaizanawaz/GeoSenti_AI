@@ -1,8 +1,12 @@
 """Per-node Celery task.
 
-Unused until Phase 5, which replaces the orchestrator's sequential loop with
-wave dispatch (group(execute_node.s(...)) plus a self-rescheduling orchestrator).
-Until then the orchestrator calls execute_one() directly, in-process.
+The unit of work the parallel strategy dispatches: one task per node, one wave
+at a time, with the orchestrator rescheduling itself to collect them. Under the
+sequential strategy the orchestrator calls execute_one() directly instead, so
+this task is simply never enqueued.
+
+It owns no state machine of its own -- execute_one() sets every NodeRun status,
+which is what lets the two strategies share one definition of "done".
 
 The old _run_node_logic dispatcher lived here and raised NotImplementedError
 for every node type; node implementations now live in app/services/nodes/.

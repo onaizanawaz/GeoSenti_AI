@@ -34,6 +34,18 @@ def dummy_transform(ctx: NodeContext, inputs):
 
 
 @register_node(
+    "dummy_branch",
+    "Test node: a second, independent consumer of dummy_a. Exists so a graph "
+    "can fan out and a scheduling wave can be more than one node wide.",
+    inputs={"dummy_a": "json"}, outputs={"dummy_c": "json"},
+    params={}, hidden=True,
+)
+def dummy_branch(ctx: NodeContext, inputs):
+    src = ctx.store.read_json(inputs["dummy_a"].uri)
+    return [Produced(name="dummy_c", kind="json", value={"value": src["value"] + 1})]
+
+
+@register_node(
     "dummy_sink",
     "Test node: writes a text file from the incoming value.",
     inputs={"dummy_b": "json"}, outputs={"dummy_out": "table"},

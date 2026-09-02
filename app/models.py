@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import (Column, DateTime, ForeignKey, Integer, String, Text,
-                        UniqueConstraint)
+from sqlalchemy import (Boolean, Column, DateTime, ForeignKey, Integer,
+                        String, Text, UniqueConstraint)
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from geoalchemy2 import Geometry
 
@@ -13,6 +13,32 @@ def utcnow() -> datetime:
     """Timezone-aware UTC now. datetime.utcnow() is deprecated and returns a
     naive datetime, which silently loses the offset on write."""
     return datetime.now(timezone.utc)
+
+
+class Org(Base):
+    """A tenant. Every workflow belongs to exactly one, and every read is
+    scoped by it -- the org is the security boundary, not the user."""
+    __tablename__ = "orgs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, nullable=False)
+    slug = Column(String, unique=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+class User(Base):
+    """A login. Users never span orgs: a person needing access to two orgs
+    gets two users, which keeps every query a single equality check."""
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id"),
+                    nullable=False, index=True)
+    email = Column(String, unique=True, nullable=False, index=True)
+    password_hash = Column(String, nullable=False)
+    role = Column(String, default="member", nullable=False)   # owner | member
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 
 class NodeCatalog(Base):
@@ -41,6 +67,11 @@ class Workflow(Base):
     status = Column(String, default="draft")  # draft / running / done / failed
     field_boundary_id = Column(UUID(as_uuid=True),
                                ForeignKey("field_boundaries.id"), nullable=True)
+    # The tenancy anchor. Runs, node_runs and artifacts all reach their org
+    # through this column, so there is exactly one place to get it right.
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id"),
+                    nullable=False, index=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -56,7 +87,7 @@ class WorkflowRun(Base):
     status = Column(String, default="pending")  # pending/running/done/failed/cancelled
     params_snapshot = Column(JSONB, default=dict)  # graph + aoi + date_range as executed
     error = Column(Text, nullable=True)
-    created_by = Column(UUID(as_uuid=True), nullable=True)  # Phase 7: users.id
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)

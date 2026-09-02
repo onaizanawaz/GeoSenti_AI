@@ -20,10 +20,14 @@ pyproj
 requests
 pillow
 
-# llm (Phase 6)
-anthropic
+# auth (Phase 7)
+pyjwt
+bcrypt
+email-validator
+
+# llm (Phase 6) -- Ollama and xAI/Grok are plain HTTP, no vendor SDK needed
+httpx
 
 # dev
 pytest
 pytest-cov
-httpx

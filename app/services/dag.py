@@ -47,6 +47,31 @@ def _edge_pair(e) -> tuple[str, str]:
     return e.source, e.target
 
 
+def _edge_ports(e) -> tuple[str | None, str | None]:
+    """(source_output, target_input) for an edge, if it declares them."""
+    if isinstance(e, dict):
+        return e.get("source_output"), e.get("target_input")
+    if isinstance(e, (list, tuple)):
+        return None, None
+    return getattr(e, "source_output", None), getattr(e, "target_input", None)
+
+
+def port_inputs(graph, node_id: str) -> dict[str, tuple[str, str | None]]:
+    """Explicit wiring: target_input -> (source node, source_output).
+
+    Needed whenever a producer's output name differs from the consumer's input
+    name, e.g. compute_ndvi produces "ndvi" but export_cog consumes "image".
+    """
+    g = as_dict(graph)
+    mapping: dict[str, tuple[str, str | None]] = {}
+    for e in g.get("edges") or []:
+        s, t = _edge_pair(e)
+        so, ti = _edge_ports(e)
+        if t == node_id and ti:
+            mapping[ti] = (s, so)
+    return mapping
+
+
 def blocking(errors: list[GraphError]) -> list[GraphError]:
     return [e for e in errors if e.code not in WARNING_CODES]
 
@@ -141,6 +166,72 @@ def descendants(graph, node_id: str) -> set[str]:
     return seen
 
 
+def predecessors(graph, node_id: str) -> list[str]:
+    """Direct upstream nodes only -- ancestors() is the transitive closure."""
+    g = as_dict(graph)
+    return sorted({s for e in (g.get("edges") or [])
+                   for s, t in [_edge_pair(e)] if t == node_id})
+
+
+def waves(graph) -> list[list[str]]:
+    """Nodes grouped by longest-path depth: everything in wave n can run
+    concurrently once wave n-1 is done.
+
+    Longest path, not shortest: a node must wait for its slowest ancestor, so
+    depth = 1 + max(depth of predecessors). Shortest path would schedule a node
+    into a wave before one of its inputs exists.
+    """
+    g = as_dict(graph)
+    depth: dict[str, int] = {}
+    for node_id in topo_sort(g):            # raises CycleError, as callers expect
+        preds = predecessors(g, node_id)
+        depth[node_id] = 1 + max((depth[p] for p in preds), default=-1)
+
+    out: list[list[str]] = [[] for _ in range(max(depth.values(), default=-1) + 1)]
+    for node_id, d in depth.items():
+        out[d].append(node_id)
+    return [sorted(w) for w in out]
+
+
+# A node is "settled" when nothing further will happen to it. Anything else is
+# either dispatchable or still in flight.
+DONE_STATES = frozenset({"done"})
+FAILED_STATES = frozenset({"failed", "skipped", "cancelled"})
+INFLIGHT_STATES = frozenset({"queued", "running"})
+
+
+def next_actions(graph, statuses: dict[str, str]) -> tuple[list[str], list[str]]:
+    """(dispatchable, to_skip) given the current per-node statuses.
+
+    Pure, so the scheduler's decisions are testable without a database or a
+    broker. A node is dispatchable once every direct predecessor is done; it is
+    skipped as soon as any ancestor has failed, without waiting for the rest of
+    its wave. Unknown or 'pending' both mean "not started".
+    """
+    g = as_dict(graph)
+    ids = [n["id"] for n in g.get("nodes") or []]
+
+    def state(n: str) -> str:
+        return statuses.get(n) or "pending"
+
+    ready: list[str] = []
+    skip: list[str] = []
+
+    for node_id in ids:
+        if state(node_id) != "pending":
+            continue
+        if any(state(a) in FAILED_STATES for a in ancestors(g, node_id)):
+            skip.append(node_id)
+        elif all(state(p) in DONE_STATES for p in predecessors(g, node_id)):
+            ready.append(node_id)
+
+    return sorted(ready), sorted(skip)
+
+
+def in_flight(statuses: dict[str, str]) -> list[str]:
+    return sorted(n for n, s in statuses.items() if s in INFLIGHT_STATES)
+
+
 def output_producers(graph) -> dict[str, list[str]]:
     """output name -> [node ids producing it]"""
     g = as_dict(graph)
@@ -159,6 +250,17 @@ def resolve_inputs(graph, node_id: str) -> dict[str, tuple[str, str]]:
     anc = ancestors(g, node_id)
 
     resolved: dict[str, tuple[str, str]] = {}
+
+    # Explicit port wiring wins, and is the only way to connect an output whose
+    # name differs from the input it feeds.
+    node_lookup = {n["id"]: n for n in g["nodes"]}
+    for target_input, (src, src_out) in port_inputs(g, node_id).items():
+        if src_out is None:
+            outs = (node_lookup.get(src) or {}).get("outputs") or []
+            src_out = outs[0] if len(outs) == 1 else None
+        if src_out is not None:
+            resolved[target_input] = (src, src_out)
+
     for inp in node.get("inputs") or []:
         if "." in inp:                       # qualified form "n2.clean_s2"
             pid, oname = inp.split(".", 1)
@@ -280,6 +382,7 @@ def validate_graph(graph, registry: dict) -> list[GraphError]:
                     f"provides it.", n["id"], hint))
 
         bare = {i.split(".")[-1] for i in declared_inputs}
+        bare |= set(port_inputs(g, n["id"]))
         for req in nd.input_schema:
             if req not in bare:
                 errs.append(GraphError(

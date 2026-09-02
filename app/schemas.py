@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class NodeSpec(BaseModel):
@@ -31,6 +31,42 @@ class WorkflowCreate(BaseModel):
     query: str
     aoi: dict[str, Any]           # GeoJSON geometry or Feature
     date_range: dict[str, str]    # {"start": "2024-01-01", "end": "2024-12-31"}
+
+
+class RegisterRequest(BaseModel):
+    """Registering creates an org and its first owner together. There is no
+    such thing as a user without an org, so they are never created apart."""
+    email: EmailStr
+    password: str
+    org_name: str
+
+
+class InviteRequest(BaseModel):
+    """Adding a member to the caller's own org. The org is taken from the
+    caller's token, never from the body -- otherwise anyone could add a user
+    to someone else's org."""
+    email: EmailStr
+    password: str
+    role: str = "member"
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class UserOut(BaseModel):
+    id: str
+    email: str
+    role: str
+    org_id: str
+    org_name: str
 
 
 class GraphErrorOut(BaseModel):

@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.database import engine
-from app.routers import artifacts, catalog, workflows
+from app.routers import artifacts, auth, catalog, workflows
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
@@ -21,6 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(workflows.router)
 app.include_router(artifacts.router)
 app.include_router(catalog.router)

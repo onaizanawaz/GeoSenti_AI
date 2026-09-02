@@ -20,6 +20,32 @@ PAYLOAD = {
 }
 
 
+@pytest.fixture(autouse=True)
+def authenticated(org):
+    """Every route in this suite now requires a bearer token.
+
+    Injected into the shared client rather than passed per call, so the tests
+    keep reading as API-shape tests; auth itself is covered in test_auth.py.
+    """
+    client.headers.update(org["headers"])
+    yield org
+    client.headers.pop("Authorization", None)
+
+
+@pytest.fixture(autouse=True)
+def dummy_graph(monkeypatch):
+    """These tests prove the API/orchestrator plumbing, not the science.
+
+    Phase 4 pointed generate_graph() at the real water-stress graph, which
+    needs live Earth Engine credentials and real imagery over the AOI. Pinning
+    the router to the dummy chain keeps this suite offline and deterministic;
+    the real graph is covered by test_analysis.py and the gee-marked tests.
+    """
+    from app.routers import workflows
+    from app.services.planner import generate_graph_dummy
+    monkeypatch.setattr(workflows, "generate_graph", generate_graph_dummy)
+
+
 @pytest.fixture
 def cleanup():
     ids = {}

@@ -31,7 +31,7 @@ NODE_REGISTRY: dict[str, NodeDef] = {}
 #   Phase 2: dummy
 #   Phase 3: sentinel2
 #   Phase 4: wapor, analysis
-_NODE_MODULES = ["dummy"]
+_NODE_MODULES = ["dummy", "sentinel2", "wapor", "analysis"]
 
 _loaded = False
 
